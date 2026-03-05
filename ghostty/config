@@ -1,0 +1,15 @@
+theme = dracula
+# Sets the background to pure black (highest contrast)
+background = #0d0d0d
+
+# Optional: Increase text brightness for even more contrast
+foreground = #ffffff
+
+# Sets the cursor color to a bright neon green
+cursor-color = #00ff00
+
+# Ensures the text under the cursor remains readable (e.g., black text on the bright cursor)
+cursor-text = #000000
+
+# Higher values (e.g., 3.0 or 4.5) make text "pop" more against the background
+minimum-contrast = 4.5

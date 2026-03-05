@@ -1,0 +1,3 @@
+[submodule "ghostty/themes/ghostty-dracula"]
+	path = ghostty/themes/ghostty-dracula
+	url = https://github.com/dracula/ghostty.git
