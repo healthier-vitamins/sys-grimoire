@@ -17,6 +17,18 @@ return {
         },
         transparent_bg = false,
         italic_comment = true,
+        -- Added overrides to fix blinding Diffview colors while preserving syntax
+        overrides = function()
+          return {
+            DiffAdd = { bg = "#1e3a29", fg = "NONE" },
+            DiffDelete = { bg = "#3a1e1e", fg = "NONE" },
+            DiffChange = { bg = "#252535", fg = "NONE" },
+            DiffText = { bg = "#3a4b5c", fg = "NONE" },
+            -- Tone down visual selection and allow syntax to show through
+            Visual = { bg = "#2B2D46", fg = "NONE" },
+            CursorLine = { bg = "#1A1A2A", fg = "NONE" },
+          }
+        end,
       })
       vim.cmd("colorscheme dracula")
     end,
