@@ -2,10 +2,16 @@ return {
   "folke/snacks.nvim",
   opts = {
     picker = {
-      hidden = true, -- Show hidden files
-      ignored = true, -- Show ignored files
       sources = {
         files = {
+          hidden = true,
+          ignored = true,
+        },
+        grep = {
+          hidden = true,
+          ignored = true,
+        },
+        recent = {
           hidden = true,
         },
       },
