@@ -11,17 +11,24 @@ if vim.env.SSH_CONNECTION or vim.env.SSH_TTY then
       ["*"] = osc52.copy("*"),
     },
     paste = {
-      ["+"] = function()
-        return { "" }
-      end,
-      ["*"] = function()
-        return { "" }
-      end,
+      ["+"] = function() return { "" } end,
+      ["*"] = function() return { "" } end,
     },
   }
-  vim.opt.clipboard = "unnamedplus"
+elseif vim.fn.has("mac") == 1 then
+  vim.g.clipboard = {
+    name = "pbcopy",
+    copy = {
+      ["+"] = "pbcopy",
+      ["*"] = "pbcopy",
+    },
+    paste = {
+      ["+"] = "pbpaste",
+      ["*"] = "pbpaste",
+    },
+  }
 else
-  -- Local Windows/WSL desktop: keep win32yank
+  -- WSL2 local desktop
   vim.g.clipboard = {
     name = "win32yank-wsl",
     copy = {
@@ -33,8 +40,8 @@ else
       ["*"] = "win32yank.exe -o --lf",
     },
   }
-  vim.opt.clipboard = "unnamedplus"
 end
+vim.opt.clipboard = "unnamedplus"
 
 vim.g.python3_host_prog = vim.fn.expand("~/.virtualenvs/neovim/bin/python")
 
