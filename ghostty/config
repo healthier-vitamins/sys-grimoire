@@ -1,3 +1,5 @@
+clipboard-read = allow
+clipboard-write = allow
 theme = dracula
 # Sets the background to pure black (highest contrast)
 background = #0d0d0d
