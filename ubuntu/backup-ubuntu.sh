@@ -4,9 +4,12 @@ set -euo pipefail
 BACKUP_DIR="$HOME/ubuntu-settings-backup"
 ARCHIVE="$HOME/ubuntu-settings-backup.tar.gz"
 
+APT_EXCLUDE_REGEX='^(linux-|libnvidia-|nvidia-|ubuntu-|language-pack-|grub-|init$|login$|dash$|bsdutils$|ncurses-|shim-signed$|snapd$|base-files$|base-passwd$|bash$|coreutils$|dpkg$|apt$|apt-utils$|systemd|udev$)'
+
 echo "Removing old backup folder..."
 rm -rf "$BACKUP_DIR"
 mkdir -p "$BACKUP_DIR"/{config,lists,logs}
+mkdir -p "$BACKUP_DIR/config/apt"
 
 echo "Backing up GNOME / Ubuntu / Tweaks settings..."
 if command -v dconf >/dev/null 2>&1; then
@@ -16,11 +19,28 @@ fi
 echo "Backing up APT package list..."
 if command -v apt-mark >/dev/null 2>&1; then
   apt-mark showmanual > "$BACKUP_DIR/lists/apt-manual-packages.txt"
+
+  grep -Ev "$APT_EXCLUDE_REGEX" \
+    "$BACKUP_DIR/lists/apt-manual-packages.txt" \
+    > "$BACKUP_DIR/lists/apt-user-packages.txt" || true
 fi
 
 echo "Backing up full dpkg package selections..."
 if command -v dpkg >/dev/null 2>&1; then
   dpkg --get-selections > "$BACKUP_DIR/lists/dpkg-selections.txt"
+fi
+
+echo "Backing up APT sources/keyrings..."
+if [ -f /etc/apt/sources.list ]; then
+  cp -a /etc/apt/sources.list "$BACKUP_DIR/config/apt/sources.list" || true
+fi
+
+if [ -d /etc/apt/sources.list.d ]; then
+  cp -a /etc/apt/sources.list.d "$BACKUP_DIR/config/apt/sources.list.d" || true
+fi
+
+if [ -d /etc/apt/keyrings ]; then
+  cp -a /etc/apt/keyrings "$BACKUP_DIR/config/apt/keyrings" || true
 fi
 
 echo "Backing up Snap apps..."
@@ -39,11 +59,6 @@ if command -v gnome-extensions >/dev/null 2>&1; then
   gnome-extensions list > "$BACKUP_DIR/lists/gnome-extensions.txt" || true
 fi
 
-echo "Backing up VS Code extensions..."
-if command -v code >/dev/null 2>&1; then
-  code --list-extensions > "$BACKUP_DIR/lists/vscode-extensions.txt" || true
-fi
-
 echo "Backing up Node / npm / nvm info..."
 if [ -d "$HOME/.nvm" ]; then
   cp -a "$HOME/.nvm" "$BACKUP_DIR/config/nvm" || true
@@ -58,21 +73,6 @@ if command -v npm >/dev/null 2>&1; then
 fi
 
 echo "Backing up app config folders..."
-
-# VS Code config
-if [ -d "$HOME/.config/Code" ]; then
-  cp -a "$HOME/.config/Code" "$BACKUP_DIR/config/vscode-config"
-fi
-
-# VS Code extensions folder
-if [ -d "$HOME/.vscode" ]; then
-  cp -a "$HOME/.vscode" "$BACKUP_DIR/config/vscode-folder"
-fi
-
-# Ghostty config
-if [ -d "$HOME/.config/ghostty" ]; then
-  cp -a "$HOME/.config/ghostty" "$BACKUP_DIR/config/ghostty"
-fi
 
 # Autostart apps
 if [ -d "$HOME/.config/autostart" ]; then
@@ -102,13 +102,24 @@ Main restore command:
 What is backed up:
 - GNOME / Ubuntu / Tweaks settings via dconf
 - APT manual package list
+- Filtered APT user package list
+- Full dpkg selections
+- APT sources/keyrings
 - Snap app list
 - Flatpak app list
-- VS Code settings and extensions
-- Ghostty config
 - nvm folder and Node/npm info
 - shell configs
+- autostart apps
 - GNOME extensions folders/settings
+
+What is NOT backed up:
+- VS Code settings/extensions
+- Ghostty config
+
+APT restore behaviour:
+- By default, restore uses lists/apt-user-packages.txt
+- Raw apt-mark output is still saved as lists/apt-manual-packages.txt
+- APT sources/keyrings are backed up but not restored automatically unless RESTORE_APT_SOURCES=1 is set
 EOF
 
 echo "Creating archive..."

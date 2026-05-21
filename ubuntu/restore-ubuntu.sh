@@ -4,6 +4,48 @@ set -euo pipefail
 BACKUP_DIR="$HOME/ubuntu-settings-backup"
 ARCHIVE="$HOME/ubuntu-settings-backup.tar.gz"
 
+APT_EXCLUDE_REGEX='^(linux-|libnvidia-|nvidia-|ubuntu-|language-pack-|grub-|init$|login$|dash$|bsdutils$|ncurses-|shim-signed$|snapd$|base-files$|base-passwd$|bash$|coreutils$|dpkg$|apt$|apt-utils$|systemd|udev$)'
+
+restore_dir() {
+  local src="$1"
+  local dest="$2"
+  local stamp
+
+  stamp="$(date +%Y%m%d-%H%M%S)"
+
+  if [ ! -d "$src" ]; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+
+  if [ -e "$dest" ]; then
+    mv "$dest" "${dest}.before-restore-${stamp}"
+  fi
+
+  cp -a "$src" "$dest"
+}
+
+restore_file() {
+  local src="$1"
+  local dest="$2"
+  local stamp
+
+  stamp="$(date +%Y%m%d-%H%M%S)"
+
+  if [ ! -f "$src" ]; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+
+  if [ -e "$dest" ]; then
+    mv "$dest" "${dest}.before-restore-${stamp}"
+  fi
+
+  cp -a "$src" "$dest"
+}
+
 if [ ! -d "$BACKUP_DIR" ]; then
   if [ -f "$ARCHIVE" ]; then
     echo "Extracting backup archive..."
@@ -17,15 +59,55 @@ if [ ! -d "$BACKUP_DIR" ]; then
   fi
 fi
 
+echo "Checking for root-owned files under common user config folders..."
+find "$HOME/.config" "$HOME/.local/share" 2>/dev/null \
+  ! -user "$USER" \
+  -print > "$BACKUP_DIR/logs/root-owned-files-before-restore.txt" || true
+
+if [ -s "$BACKUP_DIR/logs/root-owned-files-before-restore.txt" ]; then
+  echo "WARNING: Some files under your user config folders are not owned by $USER."
+  echo "See:"
+  echo "  $BACKUP_DIR/logs/root-owned-files-before-restore.txt"
+  echo
+fi
+
+echo "Optionally restoring APT sources/keyrings..."
+if [ "${RESTORE_APT_SOURCES:-0}" = "1" ]; then
+  echo "RESTORE_APT_SOURCES=1 detected. Restoring APT sources/keyrings."
+
+  if [ -f "$BACKUP_DIR/config/apt/sources.list" ]; then
+    sudo cp -a "$BACKUP_DIR/config/apt/sources.list" /etc/apt/sources.list
+  fi
+
+  if [ -d "$BACKUP_DIR/config/apt/sources.list.d" ]; then
+    sudo mkdir -p /etc/apt
+    sudo cp -a "$BACKUP_DIR/config/apt/sources.list.d" /etc/apt/sources.list.d
+  fi
+
+  if [ -d "$BACKUP_DIR/config/apt/keyrings" ]; then
+    sudo mkdir -p /etc/apt
+    sudo cp -a "$BACKUP_DIR/config/apt/keyrings" /etc/apt/keyrings
+  fi
+else
+  echo "Skipping APT sources/keyrings restore."
+  echo "To restore them, rerun with:"
+  echo "  RESTORE_APT_SOURCES=1 ./restore-ubuntu.sh"
+fi
+
 echo "Updating APT..."
-sudo apt update
+sudo apt-get update
+
+echo "Preparing APT package restore list..."
+if [ ! -f "$BACKUP_DIR/lists/apt-user-packages.txt" ] && [ -f "$BACKUP_DIR/lists/apt-manual-packages.txt" ]; then
+  grep -Ev "$APT_EXCLUDE_REGEX" \
+    "$BACKUP_DIR/lists/apt-manual-packages.txt" \
+    > "$BACKUP_DIR/lists/apt-user-packages.txt" || true
+fi
 
 echo "Restoring APT apps..."
-if [ -f "$BACKUP_DIR/lists/apt-manual-packages.txt" ]; then
-  while read -r pkg; do
-    [ -z "$pkg" ] && continue
-    sudo apt install -y "$pkg" || true
-  done < "$BACKUP_DIR/lists/apt-manual-packages.txt"
+if [ -f "$BACKUP_DIR/lists/apt-user-packages.txt" ]; then
+  grep -v '^[[:space:]]*$' "$BACKUP_DIR/lists/apt-user-packages.txt" \
+    | xargs -r sudo apt-get install -y
 fi
 
 echo "Restoring Snap apps..."
@@ -33,7 +115,6 @@ if command -v snap >/dev/null 2>&1 && [ -f "$BACKUP_DIR/lists/snap-packages.txt"
   while read -r app; do
     [ -z "$app" ] && continue
 
-    # Skip core/system snaps that usually already exist or are managed by snapd
     case "$app" in
       core|core18|core20|core22|core24|snapd|bare|gnome-*|gtk-common-themes)
         continue
@@ -55,62 +136,32 @@ fi
 echo "Restoring config folders..."
 mkdir -p "$HOME/.config"
 
-if [ -d "$BACKUP_DIR/config/vscode-config" ]; then
-  rm -rf "$HOME/.config/Code"
-  cp -a "$BACKUP_DIR/config/vscode-config" "$HOME/.config/Code"
-fi
-
-if [ -d "$BACKUP_DIR/config/vscode-folder" ]; then
-  rm -rf "$HOME/.vscode"
-  cp -a "$BACKUP_DIR/config/vscode-folder" "$HOME/.vscode"
-fi
-
-if [ -d "$BACKUP_DIR/config/ghostty" ]; then
-  rm -rf "$HOME/.config/ghostty"
-  cp -a "$BACKUP_DIR/config/ghostty" "$HOME/.config/ghostty"
-fi
-
-if [ -d "$BACKUP_DIR/config/autostart" ]; then
-  rm -rf "$HOME/.config/autostart"
-  cp -a "$BACKUP_DIR/config/autostart" "$HOME/.config/autostart"
-fi
-
-if [ -d "$BACKUP_DIR/config/gnome-shell/extensions" ]; then
-  mkdir -p "$HOME/.local/share/gnome-shell"
-  rm -rf "$HOME/.local/share/gnome-shell/extensions"
-  cp -a "$BACKUP_DIR/config/gnome-shell/extensions" "$HOME/.local/share/gnome-shell/extensions"
-fi
+restore_dir "$BACKUP_DIR/config/autostart" "$HOME/.config/autostart"
+restore_dir "$BACKUP_DIR/config/gnome-shell/extensions" "$HOME/.local/share/gnome-shell/extensions"
 
 echo "Restoring shell config files..."
 for file in .bashrc .zshrc .profile .bash_profile .gitconfig; do
-  if [ -f "$BACKUP_DIR/config/$file" ]; then
-    cp -a "$BACKUP_DIR/config/$file" "$HOME/$file"
-  fi
+  restore_file "$BACKUP_DIR/config/$file" "$HOME/$file"
 done
 
 echo "Restoring nvm folder..."
-if [ -d "$BACKUP_DIR/config/nvm" ]; then
-  rm -rf "$HOME/.nvm"
-  cp -a "$BACKUP_DIR/config/nvm" "$HOME/.nvm"
-fi
-
-echo "Restoring VS Code extensions..."
-if command -v code >/dev/null 2>&1 && [ -f "$BACKUP_DIR/lists/vscode-extensions.txt" ]; then
-  while read -r ext; do
-    [ -z "$ext" ] && continue
-    code --install-extension "$ext" || true
-  done < "$BACKUP_DIR/lists/vscode-extensions.txt"
-fi
+restore_dir "$BACKUP_DIR/config/nvm" "$HOME/.nvm"
 
 echo "Restoring GNOME settings..."
 if command -v dconf >/dev/null 2>&1 && [ -f "$BACKUP_DIR/config/gnome-settings.ini" ]; then
+  echo "Loading GNOME dconf settings. This may override dock, keyboard, theme, extension, and desktop behaviour."
   dconf load /org/gnome/ < "$BACKUP_DIR/config/gnome-settings.ini"
 fi
 
 echo
 echo "Restore complete."
+echo
 echo "Recommended next steps:"
 echo "1. Log out and log back in."
-echo "2. Reboot if GNOME extensions/dock settings look weird."
-echo "3. Open VS Code once to verify extensions/settings."
+echo "2. Reboot if GNOME extensions/dock/settings look weird."
+echo "3. If NVIDIA drivers were intentionally skipped, reinstall them using Ubuntu's driver tool."
 echo "4. Run: smartctl --version"
+echo
+echo "Notes:"
+echo "- Existing restored config targets were renamed with .before-restore-<timestamp> instead of deleted."
+echo "- APT sources/keyrings were not restored unless RESTORE_APT_SOURCES=1 was set."
