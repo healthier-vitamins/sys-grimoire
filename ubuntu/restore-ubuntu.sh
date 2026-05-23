@@ -3,6 +3,7 @@ set -euo pipefail
 
 BACKUP_DIR="$HOME/ubuntu-settings-backup"
 ARCHIVE="$HOME/ubuntu-settings-backup.tar.gz"
+APT_FAILURE_LOG="$BACKUP_DIR/logs/apt-restore-failures.txt"
 
 APT_EXCLUDE_REGEX='^(linux-|libnvidia-|nvidia-|ubuntu-|language-pack-|grub-|init$|login$|dash$|bsdutils$|ncurses-|shim-signed$|snapd$|base-files$|base-passwd$|bash$|coreutils$|dpkg$|apt$|apt-utils$|systemd|udev$)'
 
@@ -59,6 +60,8 @@ if [ ! -d "$BACKUP_DIR" ]; then
   fi
 fi
 
+mkdir -p "$BACKUP_DIR/logs"
+
 echo "Checking for root-owned files under common user config folders..."
 find "$HOME/.config" "$HOME/.local/share" 2>/dev/null \
   ! -user "$USER" \
@@ -92,6 +95,9 @@ else
   echo "Skipping APT sources/keyrings restore."
   echo "To restore them, rerun with:"
   echo "  RESTORE_APT_SOURCES=1 ./restore-ubuntu.sh"
+  echo "WARNING: Some backed up packages may depend on repos that are not enabled yet on this machine."
+  echo "Examples include ripgrep, fd-find, and gnome-tweaks from Ubuntu's universe component."
+  echo "If APT says a package cannot be located, enable the needed repos or rerun with RESTORE_APT_SOURCES=1."
 fi
 
 echo "Updating APT..."
@@ -106,8 +112,26 @@ fi
 
 echo "Restoring APT apps..."
 if [ -f "$BACKUP_DIR/lists/apt-user-packages.txt" ]; then
-  grep -v '^[[:space:]]*$' "$BACKUP_DIR/lists/apt-user-packages.txt" \
-    | xargs -r sudo apt-get install -y
+  : > "$APT_FAILURE_LOG"
+
+  while read -r package; do
+    [ -z "$package" ] && continue
+
+    if ! sudo apt-get install -y "$package"; then
+      echo "$package" >> "$APT_FAILURE_LOG"
+      echo "WARNING: Failed to install APT package: $package"
+    fi
+  done < <(grep -v '^[[:space:]]*$' "$BACKUP_DIR/lists/apt-user-packages.txt")
+
+  if [ -s "$APT_FAILURE_LOG" ]; then
+    echo
+    echo "APT restore completed with some package failures."
+    echo "Failed package list:"
+    echo "  $APT_FAILURE_LOG"
+    echo "Common cause: the target machine is missing repos/sources needed for packages such as ripgrep, fd-find, or gnome-tweaks."
+  else
+    rm -f "$APT_FAILURE_LOG"
+  fi
 fi
 
 echo "Restoring Snap apps..."

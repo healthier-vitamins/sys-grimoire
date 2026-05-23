@@ -30,6 +30,12 @@ if command -v dpkg >/dev/null 2>&1; then
   dpkg --get-selections > "$BACKUP_DIR/lists/dpkg-selections.txt"
 fi
 
+echo "Backing up installed APT package inventory..."
+if command -v dpkg-query >/dev/null 2>&1; then
+  dpkg-query -W -f='${Package}\t${Version}\t${Status}\n' \
+    > "$BACKUP_DIR/lists/dpkg-installed-packages.tsv"
+fi
+
 echo "Backing up APT sources/keyrings..."
 if [ -f /etc/apt/sources.list ]; then
   cp -a /etc/apt/sources.list "$BACKUP_DIR/config/apt/sources.list" || true
@@ -104,6 +110,7 @@ What is backed up:
 - APT manual package list
 - Filtered APT user package list
 - Full dpkg selections
+- Installed APT package inventory for diagnostics
 - APT sources/keyrings
 - Snap app list
 - Flatpak app list
@@ -118,7 +125,12 @@ What is NOT backed up:
 
 APT restore behaviour:
 - By default, restore uses lists/apt-user-packages.txt
+- APT installs are best-effort; one missing package does not stop the rest
+- Failed APT package installs are logged to logs/apt-restore-failures.txt during restore
 - Raw apt-mark output is still saved as lists/apt-manual-packages.txt
+- Installed package inventory is saved as lists/dpkg-installed-packages.tsv for diagnostics
+- Command names can differ from apt package names, for example: rg -> ripgrep
+- Ubuntu's fd-find package usually installs the fdfind command instead of fd
 - APT sources/keyrings are backed up but not restored automatically unless RESTORE_APT_SOURCES=1 is set
 EOF
 
